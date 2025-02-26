@@ -3,95 +3,108 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Route Planner & Task Manager</title>
-    <script src="https://maps.googleapis.com/maps/api/js?key={{ google_maps_api_key }}&libraries=geometry&callback=initMap" async defer></script>
-</head>
-<body>
-    <h1>🚗 Route Planner</h1>
-    <input type="text" id="start" placeholder="Start Location">
-    <input type="text" id="end" placeholder="Destination">
-    <button onclick="findRoute()">Find Route</button>
+    <title>Route Planner & Expense Tracker</title>
 
-    <h2>📅 Task Planner</h2>
-    <input type="text" id="task_name" placeholder="Task Name">
-    <input type="date" id="task_date">
-    <input type="time" id="task_time">
-    <input type="number" id="reminder_time" placeholder="Reminder (mins before)">
-    <button onclick="addTask()">Add Task</button>
-
-    <h3>📌 Planned Tasks</h3>
-    <ul id="task_list"></ul>
-
-    <div id="map" style="height: 400px; width: 100%;"></div>
+    <script async defer
+        src="https://maps.googleapis.com/maps/api/js?key=AIzaSyAl8f5_lixzi2wHH19dOnRXha9as3HTeBY&callback=initMap">
+    </script>
 
     <script>
-        let map;
-        let directionsService;
-        let directionsRenderer;
+        var map;
+        var directionsService;
+        var directionsRenderer;
 
         function initMap() {
-            map = new google.maps.Map(document.getElementById("map"), {
-                center: { lat: 37.7749, lng: -122.4194 },
+            // Default location (Can be replaced with user's actual location)
+            var myLocation = { lat: 37.7749, lng: -122.4194 };
+
+            // Initialize the map
+            map = new google.maps.Map(document.getElementById('map'), {
                 zoom: 12,
+                center: myLocation
             });
 
+            // Initialize Directions Service & Renderer
             directionsService = new google.maps.DirectionsService();
             directionsRenderer = new google.maps.DirectionsRenderer();
             directionsRenderer.setMap(map);
         }
 
-        function findRoute() {
-            let start = document.getElementById("start").value;
-            let end = document.getElementById("end").value;
+        function getRoute() {
+            var start = document.getElementById("start").value;
+            var destination = document.getElementById("destination").value;
+            var mode = document.getElementById("mode").value;
 
-            fetch("/get_route", {
-                method: "POST",
-                body: JSON.stringify({ start, end, mode: "driving" }),
-                headers: { "Content-Type": "application/json" }
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.route) {
-                    let decodedPath = google.maps.geometry.encoding.decodePath(data.route);
-                    let routePolyline = new google.maps.Polyline({
-                        path: decodedPath,
-                        geodesic: true,
-                        strokeColor: "#FF0000",
-                        strokeOpacity: 1.0,
-                        strokeWeight: 4
-                    });
-                    routePolyline.setMap(map);
-                } else {
-                    alert("No route found!");
-                }
-            })
-            .catch(error => console.error("Error fetching route:", error));
-        }
+            if (start && destination) {
+                var request = {
+                    origin: start,
+                    destination: destination,
+                    travelMode: google.maps.TravelMode[mode]
+                };
 
-        function addTask() {
-            let task = document.getElementById("task_name").value;
-            let date = document.getElementById("task_date").value;
-            let time = document.getElementById("task_time").value;
-            let reminder_time = document.getElementById("reminder_time").value;
-
-            fetch("/add_task", {
-                method: "POST",
-                body: JSON.stringify({ task, date, time, reminder_time }),
-                headers: { "Content-Type": "application/json" }
-            }).then(() => loadTasks());
-        }
-
-        function loadTasks() {
-            fetch("/get_tasks").then(response => response.json()).then(tasks => {
-                let taskList = document.getElementById("task_list");
-                taskList.innerHTML = "";
-                tasks.forEach(task => {
-                    taskList.innerHTML += `<li>${task[1]} - ${task[2]} at ${task[3]}</li>`;
+                directionsService.route(request, function(result, status) {
+                    if (status == google.maps.DirectionsStatus.OK) {
+                        directionsRenderer.setDirections(result);
+                    } else {
+                        alert("Could not find route: " + status);
+                    }
                 });
-            });
+            } else {
+                alert("Please enter both start and destination locations.");
+            }
         }
-
-        loadTasks();
     </script>
+
+    <style>
+        #map {
+            width: 100%;
+            height: 500px;
+            margin-bottom: 20px;
+        }
+    </style>
+</head>
+<body>
+    <h1>🚗 Route Planner & Expense Tracker</h1>
+
+    <!-- 🗺️ Google Map Display -->
+    <div id="map"></div>
+
+    <!-- 📍 Route Planner -->
+    <h2>Route Planner</h2>
+    <form id="routeForm">
+        <label>Start Location</label>
+        <input type="text" id="start" placeholder="Enter start location" required>
+
+        <label>Destination</label>
+        <input type="text" id="destination" placeholder="Enter destination" required>
+
+        <label>Mode of Transport</label>
+        <select id="mode">
+            <option value="DRIVING">🚗 Driving</option>
+            <option value="WALKING">🚶 Walking</option>
+            <option value="BICYCLING">🚴 Cycling</option>
+            <option value="TRANSIT">🚍 Public Transport</option>
+        </select>
+
+        <button type="button" onclick="getRoute()">Find Route</button>
+    </form>
+
+    <!-- 📅 Task Planner -->
+    <h2>Task Planner</h2>
+    <form id="taskForm">
+        <label>Task Name</label>
+        <input type="text" id="task" placeholder="Enter task" required>
+
+        <label>Due Date</label>
+        <input type="date" id="date" required>
+
+        <label>Time</label>
+        <input type="time" id="time" required>
+
+        <label>Expense ($)</label>
+        <input type="number" id="expense" placeholder="Enter amount" required>
+
+        <button type="submit">Add Task</button>
+    </form>
 </body>
 </html>
