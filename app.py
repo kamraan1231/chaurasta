@@ -1,125 +1,137 @@
-from flask import Flask, render_template, request, jsonify
-import requests
+from flask import Flask, render_template, request, jsonify, redirect, url_for
 import sqlite3
+import requests
+import os
 from datetime import datetime
-import threading
-import time
+import folium
 
 app = Flask(__name__)
-app.secret_key = "8b8adeefa2a10df513cd1d5f5de4d5b202600b4660704ba4d3beadf01b102fad"
+app.secret_key = "b'[z!\xa0m\x1bOX\x17y\xb6\x01f\x92\x9e\x81\x8d\x99\xc2\x96\xe6\x07\x93\x9f'"
 
 GOOGLE_MAPS_API_KEY = "AIzaSyAl8f5_lixzi2wHH19dOnRXha9as3HTeBY"
-OPENWEATHER_API_KEY = "d955e4dfe227a0ec3d37d6d0abeae4ed"
 
 
-# Function to get route
-@app.route("/get_route", methods=["POST"])
-def get_route():
-    data = request.json
-    start = data.get("start")
-    end = data.get("end")
-    mode = data.get("mode", "driving")
-
-    directions_url = f"https://maps.googleapis.com/maps/api/directions/json?origin={start}&destination={end}&mode={mode}&key={GOOGLE_MAPS_API_KEY}"
-
-    response = requests.get(directions_url)
-    directions_data = response.json()
-
-    if directions_data["status"] == "OK":
-        route = directions_data["routes"][0]["overview_polyline"]["points"]
-        return jsonify({"route": route})
-    else:
-        return jsonify({"error": "Route not found"}), 400
-
-
-# Function to get weather for travel route
-@app.route("/get_weather", methods=["POST"])
-def get_weather():
-    data = request.json
-    location = data.get("location")
-
-    weather_url = f"https://api.openweathermap.org/data/2.5/weather?q={location}&appid={OPENWEATHER_API_KEY}&units=metric"
-    response = requests.get(weather_url)
-    weather_data = response.json()
-
-    if weather_data.get("cod") == 200:
-        return jsonify({
-            "temperature": weather_data["main"]["temp"],
-            "description": weather_data["weather"][0]["description"]
-        })
-    else:
-        return jsonify({"error": "Weather data not found"}), 400
-
-
-# Function to add task
-@app.route("/add_task", methods=["POST"])
-def add_task():
-    data = request.json
-    task = data.get("task")
-    date = data.get("date")
-    time = data.get("time")
-    reminder_time = data.get("reminder_time", 10)  # Default 10 minutes before
-
+# Ensure database setup
+def init_db():
     with sqlite3.connect("planner.db") as conn:
         cursor = conn.cursor()
-        cursor.execute("INSERT INTO tasks (task, date, time, reminder_time) VALUES (?, ?, ?, ?)",
-                       (task, date, time, reminder_time))
+        # Task Planner Table
+        cursor.execute('''CREATE TABLE IF NOT EXISTS tasks (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            task TEXT NOT NULL,
+                            date TEXT NOT NULL,
+                            time TEXT NOT NULL)''')
+
+        # Expense Tracking Table
+        cursor.execute('''CREATE TABLE IF NOT EXISTS expenses (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            amount REAL NOT NULL,
+                            category TEXT NOT NULL,
+                            description TEXT,
+                            date TEXT NOT NULL)''')
+
         conn.commit()
 
-    return jsonify({"message": "Task added successfully"})
+
+init_db()  # Initialize the database
 
 
-# Function to get all tasks
-@app.route("/get_tasks", methods=["GET"])
-def get_tasks():
+# 📍 Get Current Location
+def get_current_location():
+    response = requests.get("https://ipinfo.io/json")
+    data = response.json()
+    location = data.get("loc", "37.7749,-122.4194")  # Default to SF if not found
+    return location.split(",")
+
+
+# 🗺️ Get Route
+def get_route(start, destination, travel_mode="driving"):
+    url = f"https://maps.googleapis.com/maps/api/directions/json?origin={start}&destination={destination}&mode={travel_mode}&key={GOOGLE_MAPS_API_KEY}"
+    response = requests.get(url)
+    return response.json()
+
+
+@app.route("/", methods=["GET", "POST"])
+def index():
+    route_data = None
+    start_location, end_location, mode = "", "", "driving"
+
+    if request.method == "POST":
+        start_location = request.form.get("start")
+        end_location = request.form.get("destination")
+        mode = request.form.get("mode", "driving")
+
+        if start_location and end_location:
+            route_data = get_route(start_location, end_location, mode)
+
+    # Fetch tasks
     with sqlite3.connect("planner.db") as conn:
         cursor = conn.cursor()
         cursor.execute("SELECT id, task, date, time FROM tasks ORDER BY date, time")
         tasks = cursor.fetchall()
 
-    return jsonify(tasks)
+    # Fetch expenses
+    with sqlite3.connect("planner.db") as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT id, amount, category, description, date FROM expenses ORDER BY date DESC")
+        expenses = cursor.fetchall()
+
+    user_location = get_current_location()
+
+    return render_template("index.html", route_data=route_data, tasks=tasks, expenses=expenses,
+                           user_location=user_location, start=start_location, destination=end_location, mode=mode)
 
 
-# Smart Reminder System (Local Notifications)
-def schedule_reminders():
-    while True:
-        now = datetime.now().strftime("%Y-%m-%d %H:%M")
-        with sqlite3.connect("planner.db") as conn:
-            cursor = conn.cursor()
-            cursor.execute(
-                "SELECT id, task FROM tasks WHERE datetime(date || ' ' || time) <= datetime('now', '+' || reminder_time || ' minutes')")
-            reminders = cursor.fetchall()
+# ✅ Add Task
+@app.route("/add_task", methods=["POST"])
+def add_task():
+    task_name = request.form.get("task_name")
+    date = request.form.get("date")
+    time = request.form.get("time")
 
-            for task_id, task_name in reminders:
-                print(f"🔔 Reminder: {task_name} is coming up!")
+    with sqlite3.connect("planner.db") as conn:
+        cursor = conn.cursor()
+        cursor.execute("INSERT INTO tasks (task, date, time) VALUES (?, ?, ?)", (task_name, date, time))
+        conn.commit()
 
-        time.sleep(60)  # Check every minute
-
-
-# Start reminder scheduler in a background thread
-reminder_thread = threading.Thread(target=schedule_reminders)
-reminder_thread.daemon = True
-reminder_thread.start()
-
-# Create database if not exists
-with sqlite3.connect("planner.db") as conn:
-    cursor = conn.cursor()
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS tasks (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            task TEXT,
-            date TEXT,
-            time TEXT,
-            reminder_time INTEGER
-        )
-    """)
-    conn.commit()
+    return redirect(url_for("index"))
 
 
-# Home route
-@app.route("/")
-def index():
-    return render_template("index.html", google_maps_api_key=GOOGLE_MAPS_API_KEY)
+# ❌ Delete Task
+@app.route("/delete_task/<int:task_id>")
+def delete_task(task_id):
+    with sqlite3.connect("planner.db") as conn:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
+        conn.commit()
+    return redirect(url_for("index"))
+
+
+# 💰 Add Expense
+@app.route("/add_expense", methods=["POST"])
+def add_expense():
+    amount = request.form.get("amount")
+    category = request.form.get("category")
+    description = request.form.get("description")
+    date = request.form.get("date")
+
+    with sqlite3.connect("planner.db") as conn:
+        cursor = conn.cursor()
+        cursor.execute("INSERT INTO expenses (amount, category, description, date) VALUES (?, ?, ?, ?)",
+                       (amount, category, description, date))
+        conn.commit()
+
+    return redirect(url_for("index"))
+
+
+# ❌ Delete Expense
+@app.route("/delete_expense/<int:expense_id>")
+def delete_expense(expense_id):
+    with sqlite3.connect("planner.db") as conn:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM expenses WHERE id = ?", (expense_id,))
+        conn.commit()
+    return redirect(url_for("index"))
 
 
 if __name__ == "__main__":
