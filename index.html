@@ -3,108 +3,280 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Route Planner & Expense Tracker</title>
-
-    <script async defer
-        src="https://maps.googleapis.com/maps/api/js?key=AIzaSyAl8f5_lixzi2wHH19dOnRXha9as3HTeBY&callback=initMap">
-    </script>
-
-    <script>
-        var map;
-        var directionsService;
-        var directionsRenderer;
-
-        function initMap() {
-            // Default location (Can be replaced with user's actual location)
-            var myLocation = { lat: 37.7749, lng: -122.4194 };
-
-            // Initialize the map
-            map = new google.maps.Map(document.getElementById('map'), {
-                zoom: 12,
-                center: myLocation
-            });
-
-            // Initialize Directions Service & Renderer
-            directionsService = new google.maps.DirectionsService();
-            directionsRenderer = new google.maps.DirectionsRenderer();
-            directionsRenderer.setMap(map);
-        }
-
-        function getRoute() {
-            var start = document.getElementById("start").value;
-            var destination = document.getElementById("destination").value;
-            var mode = document.getElementById("mode").value;
-
-            if (start && destination) {
-                var request = {
-                    origin: start,
-                    destination: destination,
-                    travelMode: google.maps.TravelMode[mode]
-                };
-
-                directionsService.route(request, function(result, status) {
-                    if (status == google.maps.DirectionsStatus.OK) {
-                        directionsRenderer.setDirections(result);
-                    } else {
-                        alert("Could not find route: " + status);
-                    }
-                });
-            } else {
-                alert("Please enter both start and destination locations.");
-            }
-        }
-    </script>
-
+    <title>Route Planner</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
     <style>
-        #map {
+        :root {
+            --bg-color: #f8f9fa;
+            --text-color: #212529;
+            --card-bg: #ffffff;
+            --border-color: rgba(0, 0, 0, 0.125);
+        }
+
+        [data-theme="dark"] {
+            --bg-color: #212529;
+            --text-color: #f8f9fa;
+            --card-bg: #343a40;
+            --border-color: rgba(255, 255, 255, 0.125);
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            padding: 20px;
+            transition: background-color 0.3s ease;
+        }
+        .map-container {
+            height: 400px;
             width: 100%;
-            height: 500px;
-            margin-bottom: 20px;
+            margin: 20px 0;
+            border-radius: 10px;
+            overflow: hidden;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        .card {
+            margin: 20px 0;
+            border: none;
+            border-radius: 15px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        .card-header {
+            background-color: #ffffff;
+            border-bottom: 1px solid rgba(0, 0, 0, 0.125);
+            padding: 1rem;
+            border-radius: 15px 15px 0 0 !important;
+        }
+        .form-control {
+            border-radius: 8px;
+            border: 1px solid #ced4da;
+            padding: 10px;
+            margin-bottom: 10px;
+        }
+        .btn-primary {
+            background-color: #0d6efd;
+            border: none;
+            border-radius: 8px;
+            padding: 10px 20px;
+            transition: all 0.3s;
+        }
+        .btn-primary:hover {
+            background-color: #0b5ed7;
+            transform: translateY(-2px);
+        }
+        #toggle-password {
+            position: absolute;
+            right: 15px;
+            top: 45%;
+            cursor: pointer;
+        }
+        .list-group-item {
+            border: none;
+            border-bottom: 1px solid rgba(0, 0, 0, 0.125);
+            padding: 1rem;
         }
     </style>
 </head>
 <body>
-    <h1>🚗 Route Planner & Expense Tracker</h1>
+    <div class="container">
+        <div class="d-flex justify-content-end mb-3">
+            <button class="btn btn-outline-primary" onclick="toggleTheme()">
+                <i class="fas fa-moon"></i> Toggle Dark Mode
+            </button>
+        </div>
+        <div class="card">
+            <div class="card-header">
+                <h2 class="mb-0"><i class="fas fa-route"></i> Route Planner</h2>
+            </div>
+            <div class="card-body">
+                <form action="{{ url_for('get_route') }}" method="post">
+                    <div class="mb-3">
+                        <input type="text" class="form-control" name="start" placeholder="Start Location" required>
+                    </div>
+                    <div class="mb-3">
+                        <input type="text" class="form-control" name="destination" placeholder="Destination" required>
+                    </div>
+                    <div id="stops">
+                        <div class="mb-3">
+                            <input type="text" class="form-control" name="stops[]" placeholder="Stop Location">
+                        </div>
+                    </div>
+                    <div class="mb-3" style="position: relative;">
+                        <label for="password">Password</label>
+                        <input type="password" class="form-control" id="password" name="password" placeholder="Enter password" required>
+                        <span id="toggle-password" class="fa fa-eye-slash"></span>
+                    </div>
+                    <button type="submit" class="btn btn-primary">Find Route</button>
+                </form>
+                {% if map_html %}
+                <div class="map-container mt-4">
+                    {{ map_html|safe }}
+                </div>
+                {% if weather_data %}
+                <div class="mt-4">
+                    <h3><i class="fas fa-cloud-sun"></i> Weather Info</h3>
+                    <div class="list-group">
+                        {% for data in weather_data %}
+                            <div class="list-group-item">
+                                <i class="fas fa-map-marker-alt me-2"></i>
+                                {{ data.location }} - {{ data.description }}, {{ data.temperature }}°C
+                            </div>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% endif %}
+                {% endif %}
+            </div>
+        </div>
 
-    <!-- 🗺️ Google Map Display -->
-    <div id="map"></div>
+        <div class="card">
+            <div class="card-header">
+                <h2 class="mb-0"><i class="fas fa-tasks"></i> Task Planner</h2>
+            </div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <input type="text" id="taskFilter" class="form-control" placeholder="Search Tasks...">
+                </div>
+                <form action="{{ url_for('add_task') }}" method="post">
+                    <div class="mb-3">
+                        <input type="text" class="form-control" name="task" placeholder="Task Name" required>
+                    </div>
+                    <div class="mb-3">
+                        <input type="text" class="form-control datepicker" name="date" required>
+                    </div>
+                    <div class="mb-3">
+                        <input type="time" class="form-control" name="time" required>
+                    </div>
+                    <button type="submit" class="btn btn-primary">Add Task</button>
+                </form>
 
-    <!-- 📍 Route Planner -->
-    <h2>Route Planner</h2>
-    <form id="routeForm">
-        <label>Start Location</label>
-        <input type="text" id="start" placeholder="Enter start location" required>
+                {% if tasks %}
+                <div class="mt-4">
+                    <h3>Tasks</h3>
+                    <div class="list-group">
+                    {% for task in tasks %}
+                        <div class="list-group-item">
+                            <i class="fas fa-calendar-check me-2"></i>
+                            {{ task[1] }} - {{ task[2] }} at {{ task[3] }}
+                        </div>
+                    {% endfor %}
+                    </div>
+                </div>
+                {% endif %}
+            </div>
+        </div>
 
-        <label>Destination</label>
-        <input type="text" id="destination" placeholder="Enter destination" required>
+        <div class="card">
+            <div class="card-header">
+                <h2 class="mb-0"><i class="fas fa-money-bill-wave"></i> Expense Tracker</h2>
+            </div>
+            <div class="card-body">
+                <form action="{{ url_for('add_expense') }}" method="post">
+                    <div class="mb-3">
+                        <input type="number" class="form-control" name="amount" step="0.01" placeholder="Amount" required>
+                    </div>
+                    <div class="mb-3">
+                        <input type="text" class="form-control" name="category" placeholder="Category" required>
+                    </div>
+                    <div class="mb-3">
+                        <input type="text" class="form-control" name="description" placeholder="Description">
+                    </div>
+                    <div class="mb-3">
+                        <input type="text" class="form-control datepicker" name="date" required>
+                    </div>
+                    <button type="submit" class="btn btn-primary">Add Expense</button>
+                </form>
 
-        <label>Mode of Transport</label>
-        <select id="mode">
-            <option value="DRIVING">🚗 Driving</option>
-            <option value="WALKING">🚶 Walking</option>
-            <option value="BICYCLING">🚴 Cycling</option>
-            <option value="TRANSIT">🚍 Public Transport</option>
-        </select>
+                {% if expenses %}
+                <div class="mt-4">
+                    <h3>Expenses</h3>
+                    <div class="list-group">
+                    {% for expense in expenses %}
+                        <div class="list-group-item">
+                            <i class="fas fa-receipt me-2"></i>
+                            ${{ expense[1] }} - {{ expense[2] }} ({{ expense[3] }}) on {{ expense[4] }}
+                        </div>
+                    {% endfor %}
+                    </div>
+                </div>
+                {% if expenses %}
+                <div class="mt-5">
+                    <h3><i class="fas fa-chart-pie"></i> Expense Chart</h3>
+                    <canvas id="expenseChart" height="150"></canvas>
+                </div>
+                {% endif %}
+                {% endif %}
+            </div>
+        </div>
+    </div>
 
-        <button type="button" onclick="getRoute()">Find Route</button>
-    </form>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        function toggleTheme() {
+            const body = document.body;
+            const currentTheme = body.getAttribute('data-theme');
+            const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+            body.setAttribute('data-theme', newTheme);
 
-    <!-- 📅 Task Planner -->
-    <h2>Task Planner</h2>
-    <form id="taskForm">
-        <label>Task Name</label>
-        <input type="text" id="task" placeholder="Enter task" required>
+            // Save theme preference
+            fetch('/update_theme', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ theme: newTheme })
+            });
+        }
 
-        <label>Due Date</label>
-        <input type="date" id="date" required>
+        // Set initial theme
+        document.body.setAttribute('data-theme', '{{ theme }}');
+    </script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+    <script>
+        flatpickr(".datepicker", {
+            dateFormat: "Y-m-d"
+        });
 
-        <label>Time</label>
-        <input type="time" id="time" required>
+        document.getElementById('taskFilter')?.addEventListener('input', function () {
+            const filter = this.value.toLowerCase();
+            document.querySelectorAll('.list-group-item').forEach(item => {
+                const text = item.textContent.toLowerCase();
+                item.style.display = text.includes(filter) ? 'block' : 'none';
+            });
+        });
+    </script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script>
+        {% if expenses %}
+        const ctx = document.getElementById('expenseChart').getContext('2d');
+        const expenseData = {{ expense_chart_data|safe }};
+        new Chart(ctx, {
+            type: 'pie',
+            data: {
+                labels: expenseData.labels,
+                datasets: [{
+                    label: 'Expenses',
+                    data: expenseData.data,
+                    backgroundColor: ['#0d6efd', '#198754', '#ffc107', '#dc3545', '#6f42c1'],
+                    borderWidth: 1
+                }]
+            }
+        });
+        {% endif %}
+    </script>
+    <script>
+        const togglePassword = document.querySelector("#toggle-password");
+        const passwordField = document.querySelector("#password");
 
-        <label>Expense ($)</label>
-        <input type="number" id="expense" placeholder="Enter amount" required>
+        togglePassword.addEventListener("click", function() {
+            const type = passwordField.type === "password" ? "text" : "password";
+            passwordField.type = type;
 
-        <button type="submit">Add Task</button>
-    </form>
+            this.classList.toggle("fa-eye-slash");
+            this.classList.toggle("fa-eye");
+        });
+    </script>
 </body>
 </html>
